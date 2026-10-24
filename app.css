@@ -24,3 +24,4 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--r);flex:none}inpu
 .doc h3{color:var(--r);border-bottom:1px solid #ddd;padding-bottom:4px}.sum{display:flex;flex-wrap:wrap;gap:8px}.sum div{border-left:5px solid var(--c,var(--r));background:#f6f6f6;padding:8px 12px;border-radius:6px;min-width:110px}.sum b{display:block;font-size:20px}.sum small{color:#555}.sum .tot{background:var(--r);color:#fff}.sum .tot small{color:#fff}
 .doc table{width:100%;border-collapse:collapse}.doc th{background:var(--g);color:#fff;text-align:left;padding:6px;font-size:11px}.doc td{border-bottom:1px solid #e3e3e3;padding:6px;vertical-align:top}.doc tr:nth-child(even) td{background:#fafafa}.foot{text-align:center;color:#999;margin-top:20px;font-size:10px}
 @media(max-width:520px){#cfgb span{display:none}.cl{grid-template-columns:1fr}.doc{overflow-x:auto}}
+.acts button.presu{background:#C8102E;color:#fff;border-color:#C8102E;flex-basis:100%}

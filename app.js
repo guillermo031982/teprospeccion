@@ -67,7 +67,7 @@ R.visitas=async()=>{await reload();const L=filtered();
 function card(l){const d=S.center?distM(S.center,l.loc):null;return`<div class="loc" style="--c:${estC(l.principal)}"><div onclick="ficha('${l.id}')"><b>${esc(l.name)}</b><span class="badge">${estN(l.principal)}</span>
  <div class="muted">${esc(l.addr)}</div><div class="muted">${(l.cats||[]).map(catN).join(', ')}${d!=null?' · '+fmtKm(Math.round(d/100)*100):''}${l.rating?' · ★'+l.rating:''}${l.fechaVisita?' · visita '+l.fechaVisita:''}</div>
  ${(l.marks||[]).length?`<div class="mk">${l.marks.map(m=>`<i style="background:${estC(m)}">${estN(m)}</i>`).join('')}</div>`:''}</div>${acts(l)}</div>`}
-const acts=l=>`<div class="acts">${l.phone?`<a href="tel:${l.phone.replace(/\s/g,'')}">📞 Llamar</a>`:''}<a target="_blank" href="${l.maps||'https://www.google.com/maps/search/?api=1&query='+l.loc.lat+','+l.loc.lng}">📍 Maps</a><a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination=${l.loc.lat},${l.loc.lng}${l.id?'&destination_place_id='+l.id:''}">🚗 Cómo llegar</a><button onclick="ficha('${l.id}')">✏️ Ficha</button></div>`;
+const acts=l=>`<div class="acts">${l.phone?`<a href="tel:${l.phone.replace(/\s/g,'')}">📞 Llamar</a>`:''}<a target="_blank" href="${l.maps||'https://www.google.com/maps/search/?api=1&query='+l.loc.lat+','+l.loc.lng}">📍 Maps</a><a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination=${l.loc.lat},${l.loc.lng}${l.id?'&destination_place_id='+l.id:''}">🚗 Cómo llegar</a><button onclick="ficha('${l.id}')">✏️ Ficha</button><button class="presu" onclick="hacerPresu('${l.id}')">📝 Hacer presupuesto</button></div>`;
 async function ficha(id){const l=await DB.get(id);const ov=document.createElement('div');ov.className='ov';ov.innerHTML=`<div class="sheet"><button class="x" onclick="this.closest('.ov').remove()">✕</button>
  <h2>${esc(l.name)}</h2><p class="muted">${esc(l.addr)}${l.phone?'<br>📞 '+esc(l.phone):''}</p>${acts(l)}
  <h3>Checklist</h3><div class="cl">${EST.map(e=>`<label class="ck big2" style="--c:${e[2]}"><input type="checkbox" value="${e[0]}" ${(l.marks||[]).includes(e[0])?'checked':''}> ${e[1]}</label>`).join('')}</div>
@@ -106,4 +106,24 @@ async function exportCSV(){await reload();const q=v=>'"'+String(v??'').replace(/
  const rows=S.locs.map(l=>[l.name,l.addr,l.phone,(l.cats||[]).map(catN).join(', '),estN(l.principal),(l.marks||[]).map(estN).join(', '),l.fechaVisita,l.notas,l.rating,l.loc.lat,l.loc.lng,l.maps].map(q).join(';'));
  dl(new Blob(['\ufeff'+[h.map(q).join(';'),...rows].join('\r\n')],{type:'text/csv'}),'teprospeccion-'+today()+'.csv')}
 if('serviceWorker' in navigator&&location.protocol=='https:')navigator.serviceWorker.register('sw.js');
-reload().then(()=>go('buscar'));
+syncPresu().catch(e=>console.warn(e)).then(reload).then(()=>go('buscar'));
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState=='visible')syncPresu().then(n=>{if(n&&['visitas','mapa'].includes(S.view))R[S.view]()}).catch(e=>console.warn(e))});
+window.addEventListener('pageshow',e=>{if(e.persisted)syncPresu().then(n=>{if(n)R[S.view]()})});
+
+/* ---------- INTEGRACIÓN TePresupuesto ---------- */
+var TP_CAT_PRI=['bar','cafe','rest','carn','pan','super','mini','taller','inmo','hotel','farm','gym','pelu','cole','clin','alm'];
+async function hacerPresu(id){const l=await DB.get(id);if(!l)return;const cat=TP_CAT_PRI.find(c=>(l.cats||[]).includes(c))||(l.cats||[])[0]||'';
+ l.hist=[...(l.hist||[]),{t:Date.now(),txt:'Abierto en TePresupuesto'}];l.upd=Date.now();await DB.put(l);
+ const q=new URLSearchParams({nuevo:'1',from:'tpros',pid:l.id,nombre:l.name||'',dir:l.addr||'',tel:l.phone||'',cat,lat:l.loc?l.loc.lat:'',lon:l.loc?l.loc.lng:''});
+ location.href='../tepresupuesto/?'+q.toString()}
+var _syncing=null;
+function syncPresu(){return _syncing||(_syncing=(async()=>{let a;try{a=JSON.parse(localStorage.getItem('tpros_sync')||'[]')}catch(e){a=[]}if(!Array.isArray(a)||!a.length)return 0;
+ let n=0;const done=new Set();
+ for(const it of a){const l=it&&it.pid&&await DB.get(it.pid);done.add(it);if(!l)continue;const t=Date.parse(it.fecha)||Date.now();
+  if((l.hist||[]).some(h=>h.ref&&h.ref==it.ref))continue;
+  l.marks=[...new Set([...(l.marks||[]),'presu'])];l.principal='presu';if(!l.fechaVisita)l.fechaVisita=dayOf(t);
+  l.hist=[...(l.hist||[]),{t,ref:it.ref,txt:'Presupuesto entregado'+(it.ref?' ('+it.ref+')':'')+' · desde TePresupuesto'}];l.upd=Date.now();await DB.put(l);n++}
+ let cur;try{cur=JSON.parse(localStorage.getItem('tpros_sync')||'[]')}catch(e){cur=[]}
+ const left=cur.filter(x=>![...done].some(d=>d.pid==x.pid&&d.ref==x.ref&&d.fecha==x.fecha));
+ left.length?localStorage.setItem('tpros_sync',JSON.stringify(left)):localStorage.removeItem('tpros_sync');
+ if(n){await reload();toast(n==1?'✓ 1 local marcado como «Presupuesto entregado»':'✓ '+n+' locales marcados como «Presupuesto entregado»')}return n})().finally(()=>{_syncing=null}))}
