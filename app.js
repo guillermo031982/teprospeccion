@@ -150,21 +150,21 @@ function batLegend(b){const s=batStats(b),pct=s.n?Math.round(100*s.vis/s.n):0;
 function batColor(b){const s=batStats(b),p=s.n?s.vis/s.n:0;return p>=.5?'#C8102E':p>0?'#E0606F':'#4A4A4A'}
 async function verBatida(id){const b=(await DB.bAll()).find(x=>x.id==id);if(!b)return;S.center={...b.center,src:'batida '+fFecha(b.t)};S.radius=b.radius;S.f.zona=true;go('visitas')}
 async function delBatida(id){if(!confirm('¿Borrar esta batida del mapa? (los locales y sus visitas NO se borran)'))return;await DB.bDel(id);toast('Batida borrada');R.batidas()}
-let llP=null;function loadLeaflet(){if(window.L&&L.map)return Promise.resolve();return llP||(llP=new Promise((ok,ko)=>{const c=document.createElement('link');c.rel='stylesheet';c.href='leaflet.css?v=5';document.head.appendChild(c);
- const s=document.createElement('script');s.src='leaflet.js?v=5';s.onload=ok;s.onerror=()=>{llP=null;ko(new Error('No se pudo cargar el mapa'))};document.head.appendChild(s)}))}
+let llP=null;function loadLeaflet(){if(window.L&&L.map)return Promise.resolve();return llP||(llP=new Promise((ok,ko)=>{const c=document.createElement('link');c.rel='stylesheet';c.href='leaflet.css?v=6';document.head.appendChild(c);
+ const s=document.createElement('script');s.src='leaflet.js?v=6';s.onload=ok;s.onerror=()=>{llP=null;ko(new Error('No se pudo cargar el mapa'))};document.head.appendChild(s)}))}
 R.batidas=async()=>{await reload();const B=(await DB.bAll()).sort((a,b)=>b.t-a.t);
  $('#main').innerHTML=`<div class="card"><h2>🎯 Mapa de visitas</h2><p class="muted">Cada círculo es una batida comercial (búsqueda). Tócalo para ver la leyenda. Rojo = ≥50 % visitado, rosa = empezada, gris = sin visitar.</p>
  <div class="map tall" id="bmap"></div><div id="bleg"></div></div>
  <div class="card"><h2>🗓 Batidas recientes (${B.length})</h2>${B.length?B.map(b=>{const s=batStats(b);return`<div class="bitem" onclick="focusBat('${b.id}')"><span class="dot" style="background:${batColor(b)}"></span><div><b>${fFecha(b.t)}</b> · ${fmtKm(b.radius)}${b.tipo=='texto'?' · «'+esc(b.q)+'»':''}<br><small>${s.n||b.n} locales · ${s.vis} visitados</small></div></div>`}).join(''):'<p class="muted">Aún no hay batidas. Se guardan automáticamente al usar «Buscar establecimientos en mi zona».</p>'}</div>`;
- S.bats=B;if(!B.length)return;
- const show=b=>{$('#bleg').innerHTML=batLegend(b)};let focus;
- try{if(!apiKey())throw 0;await loadMaps();const m=new google.maps.Map($('#bmap'),{center:B[0].center,zoom:12,mapTypeId:'hybrid',streetViewControl:false}),bd=new google.maps.LatLngBounds(),iw=new google.maps.InfoWindow();
-  const cs={};B.slice().reverse().forEach(b=>{const col=batColor(b),c=new google.maps.Circle({map:m,center:b.center,radius:b.radius,strokeColor:col,strokeWeight:2,fillColor:col,fillOpacity:.18,clickable:true});cs[b.id]=c;
-   const ne=offset(b.center,b.radius,b.radius),sw=offset(b.center,-b.radius,-b.radius);bd.extend(ne);bd.extend(sw);
-   c.addListener('click',ev=>{show(b);iw.setContent(`<div style="max-width:260px">${batLegend(b)}</div>`);iw.setPosition(ev.latLng);iw.open(m)})});
-  m.fitBounds(bd);focus=id=>{const b=B.find(x=>x.id==id);m.fitBounds(cs[id].getBounds());show(b);iw.setContent(`<div style="max-width:260px">${batLegend(b)}</div>`);iw.setPosition(b.center);iw.open(m)}}
- catch(e){try{await loadLeaflet();const m=L.map('bmap').setView([B[0].center.lat,B[0].center.lng],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(m);const cs={};
-   B.slice().reverse().forEach(b=>{const col=batColor(b);cs[b.id]=L.circle([b.center.lat,b.center.lng],{radius:b.radius,color:col,weight:2,fillColor:col,fillOpacity:.18}).addTo(m).bindPopup(()=>batLegend(b),{maxWidth:280}).on('click',()=>show(b))});
-   m.fitBounds(L.featureGroup(Object.values(cs)).getBounds());focus=id=>{m.fitBounds(cs[id].getBounds());cs[id].openPopup();show(B.find(x=>x.id==id))}}
-  catch(e2){console.warn('MAPERR',e2&&e2.stack||e2);$('#bmap').outerHTML='<div class="warn">No se pudo cargar el mapa (sin conexión o sin clave). La leyenda sigue disponible en la lista.</div>';focus=id=>show(B.find(x=>x.id==id))}}
+ S.bats=B;const show=b=>{$('#bleg').innerHTML=batLegend(b)};let focus=id=>show(B.find(x=>x.id==id));
+ // Siempre Leaflet (local): no depende de la clave de Google ni de Maps JavaScript API
+ try{await loadLeaflet();const c0=S.center||{lat:28.4636,lng:-16.2518},m=L.map('bmap').setView([c0.lat,c0.lng],B.length?12:11);
+  const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(m),
+   sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'© Esri'});
+  L.control.layers({'Calles':osm,'Satélite':sat}).addTo(m);const cs={};
+  B.slice().reverse().forEach(b=>{const col=batColor(b);cs[b.id]=L.circle([b.center.lat,b.center.lng],{radius:b.radius,color:col,weight:2,fillColor:col,fillOpacity:.18}).addTo(m).bindPopup(()=>batLegend(b),{maxWidth:280}).on('click',()=>show(b))});
+  const fit=()=>{m.invalidateSize();if(B.length)m.fitBounds(L.featureGroup(Object.values(cs)).getBounds())};fit();setTimeout(fit,300);
+  if(!B.length)L.marker([c0.lat,c0.lng]).addTo(m).bindPopup('Aún no hay batidas. Haz una búsqueda y aparecerá aquí su círculo.').openPopup();
+  focus=id=>{m.fitBounds(cs[id].getBounds());cs[id].openPopup();show(B.find(x=>x.id==id))}}
+ catch(e){console.warn('MAPERR',e);$('#bmap').outerHTML='<div class="warn">No se pudo cargar el mapa (¿sin conexión?). La leyenda sigue disponible en la lista.</div>'}
  window.focusBat=id=>{focus(id);$('#bmap')&&$('#bmap').scrollIntoView({behavior:'smooth'})}};
