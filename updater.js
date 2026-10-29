@@ -1,5 +1,5 @@
 /* Actualizador in-app. NUNCA toca IndexedDB ni localStorage. En cada release subir APP_V y version.json */
-const APP_V=4,APP_CP='tpros-';
+const APP_V=5,APP_CP='tpros-';
 (function(){
 let LAST=0,NEWV=0;
 function tst(m){if(window.toast)toast(m);else alert(m)}

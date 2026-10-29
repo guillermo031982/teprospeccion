@@ -1,4 +1,5 @@
-const DB={db:null,open(){return this.db?Promise.resolve(this.db):new Promise((ok,ko)=>{const r=indexedDB.open('teprospeccion',1);r.onupgradeneeded=()=>r.result.createObjectStore('locales',{keyPath:'id'});r.onsuccess=()=>ok(this.db=r.result);r.onerror=()=>ko(r.error)})},
-async tx(m,f){const d=await this.open();return new Promise((ok,ko)=>{const t=d.transaction('locales',m),s=t.objectStore('locales'),q=f(s);t.oncomplete=()=>ok(q&&q.result);t.onerror=()=>ko(t.error)})},
+const DB={db:null,open(){return this.db?Promise.resolve(this.db):new Promise((ok,ko)=>{const r=indexedDB.open('teprospeccion',2);r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains('locales'))d.createObjectStore('locales',{keyPath:'id'});if(!d.objectStoreNames.contains('batidas'))d.createObjectStore('batidas',{keyPath:'id'})};r.onsuccess=()=>ok(this.db=r.result);r.onerror=()=>ko(r.error)})},
+async tx(m,f,st='locales'){const d=await this.open();return new Promise((ok,ko)=>{const t=d.transaction(st,m),s=t.objectStore(st),q=f(s);t.oncomplete=()=>ok(q&&q.result);t.onerror=()=>ko(t.error)})},
 all(){return this.tx('readonly',s=>s.getAll())},get(id){return this.tx('readonly',s=>s.get(id))},put(o){return this.tx('readwrite',s=>s.put(o))},
-putMany(a){return this.tx('readwrite',s=>{a.forEach(o=>s.put(o))})},clear(){return this.tx('readwrite',s=>s.clear())}};
+putMany(a){return this.tx('readwrite',s=>{a.forEach(o=>s.put(o))})},clear(){return this.tx('readwrite',s=>s.clear())},
+bAll(){return this.tx('readonly',s=>s.getAll(),'batidas')},bPut(o){return this.tx('readwrite',s=>s.put(o),'batidas')},bPutMany(a){return this.tx('readwrite',s=>{a.forEach(o=>s.put(o))},'batidas')},bDel(id){return this.tx('readwrite',s=>s.delete(id),'batidas')}};

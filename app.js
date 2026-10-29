@@ -10,6 +10,7 @@ async function reload(){S.locs=await DB.all()}
 function go(v){S.view=v;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v==v));scrollTo(0,0);R[v]()}
 const fmtKm=m=>m>=1000?(m/1000).toFixed(m%1000?1:0)+' km':m+' m';
 const R={};
+window.__noMapsKey=false;
 /* ---------- BUSCAR ---------- */
 R.buscar=()=>{const ncat=S.cats.length,minR=+(localStorage.getItem('tpros_minr')||1000),e=estimateCalls(S.radius,ncat,minR);
  $('#main').innerHTML=`${apiKey()?'':`<div class="warn">🔑 Falta la clave de Google Maps. Pégala en <a href="#" onclick="go('cfg');return false">⚙ Configuración</a> para poder buscar.</div>`}
@@ -44,11 +45,11 @@ async function buscar(){if(!apiKey())return toast('Falta la clave de Google en �
  if(e.max>60&&!confirm(`Esta búsqueda puede hacer hasta ${e.max} llamadas a Google (≈${(e.max*PRICE_1000/1000).toFixed(2)} US$ fuera del cupo gratuito). ¿Continuar?`))return;
  S.ctrl=new AbortController();const pg=$('#prog');pg.innerHTML=`<div class="card"><div class="bar"><i id="pbar"></i></div><p id="ptxt">Iniciando…</p><button class="btn gray" onclick="S.ctrl.abort()">✖ Cancelar</button></div>`;
  try{const r=await sweep({center:S.center,radius:S.radius,cats:S.cats,minR,maxCalls,signal:S.ctrl.signal,onProgress:p=>{$('#pbar').style.width=Math.round(100*p.calls/p.planned)+'%';$('#ptxt').textContent=`Llamadas: ${p.calls} / ${p.planned} previstas · ${p.found} establecimientos únicos`}});
-  const n=await store(r.list);S.lastIds=new Set(r.list.map(x=>x.p.id));
+  const n=await store(r.list);S.lastIds=new Set(r.list.map(x=>x.p.id));await saveBatida({tipo:'zona',cats:[...S.cats],ids:[...S.lastIds],calls:r.calls,trunc:!!r.truncated});
   pg.innerHTML=`<div class="card ok">✅ ${r.list.length} establecimientos encontrados (${n} nuevos) con ${r.calls} llamadas.${r.truncated?' <b>Se alcanzó el límite de llamadas</b>: puede faltar alguno en zonas muy densas.':''}<br><button class="btn" onclick="S.f.zona=true;go('visitas')">Ver listado</button> <button class="btn gray" onclick="S.f.zona=true;go('mapa')">Ver en mapa</button></div>`}
  catch(err){pg.innerHTML=`<div class="warn">${err.name=='AbortError'?'Búsqueda cancelada.':err.message=='NOKEY'?'Falta la clave.':'Error de Google: '+esc(err.message)}</div>`}}
 async function buscarTexto(){const q=$('#tq').value.trim();if(!q)return;if(!S.center)return toast('Elige primero un centro');
- try{const res=await textSearch(q,S.center,S.radius);const n=await store(res.filter(p=>p.location).map(p=>({p,loc:{lat:p.location.latitude,lng:p.location.longitude},cats:[]})));toast(res.length+' resultados ('+n+' nuevos)');S.f.q='';go('visitas')}
+ try{const res=await textSearch(q,S.center,S.radius);const n=await store(res.filter(p=>p.location).map(p=>({p,loc:{lat:p.location.latitude,lng:p.location.longitude},cats:[]})));await saveBatida({tipo:'texto',q,cats:[],ids:res.filter(p=>p.location).map(p=>p.id),calls:1});toast(res.length+' resultados ('+n+' nuevos)');S.f.q='';go('visitas')}
  catch(e){toast(e.message=='NOKEY'?'Falta la clave de Google':'Error: '+e.message)}}
 /* ---------- FILTROS ---------- */
 function filtered(){const f=S.f,q=f.q.toLowerCase();return S.locs.filter(l=>{
@@ -100,8 +101,8 @@ R.cfg=()=>{const k=apiKey();$('#main').innerHTML=`${updCard()}<div class="card">
  <div class="card"><h2>💾 Copias de seguridad</h2><div class="row wrap"><button class="btn" onclick="exportJSON()">⬇ Exportar copia (JSON)</button><button class="btn" onclick="$('#imp').click()">⬆ Restaurar copia</button><button class="btn gray" onclick="exportCSV()">📊 Exportar CSV (Excel)</button></div><input type="file" id="imp" accept=".json,application/json" hidden onchange="importJSON(this.files[0])">
  <p class="muted">${S.locs.length} establecimientos guardados.</p><button class="btn red" onclick="if(confirm('¿Borrar TODOS los establecimientos y visitas?'))DB.clear().then(reload).then(()=>{toast('Borrado');R.cfg()})">🗑 Borrar todo</button></div>`};
 function dl(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);toast('Descargado: '+name)}
-async function exportJSON(){await reload();dl(new Blob([JSON.stringify({app:'teprospeccion',v:1,fecha:new Date().toISOString(),locales:S.locs},null,1)],{type:'application/json'}),'teprospeccion-copia-'+today()+'.json')}
-async function importJSON(f){if(!f)return;try{const j=JSON.parse(await f.text());const a=j.locales||j;if(!Array.isArray(a))throw 0;await DB.putMany(a);await reload();toast(a.length+' establecimientos restaurados');R.cfg()}catch(e){toast('Archivo no válido')}}
+async function exportJSON(){await reload();const bat=await DB.bAll();dl(new Blob([JSON.stringify({app:'teprospeccion',v:2,fecha:new Date().toISOString(),locales:S.locs,batidas:bat},null,1)],{type:'application/json'}),'teprospeccion-copia-'+today()+'.json')}
+async function importJSON(f){if(!f)return;try{const j=JSON.parse(await f.text());const a=j.locales||j;if(!Array.isArray(a))throw 0;await DB.putMany(a);if(Array.isArray(j.batidas))await DB.bPutMany(j.batidas);await reload();toast(a.length+' establecimientos restaurados');R.cfg()}catch(e){toast('Archivo no válido')}}
 async function exportCSV(){await reload();const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"',h=['Nombre','Dirección','Teléfono','Categorías','Estado','Marcas','Fecha visita','Notas','Valoración','Lat','Lng','Google Maps'];
  const rows=S.locs.map(l=>[l.name,l.addr,l.phone,(l.cats||[]).map(catN).join(', '),estN(l.principal),(l.marks||[]).map(estN).join(', '),l.fechaVisita,l.notas,l.rating,l.loc.lat,l.loc.lng,l.maps].map(q).join(';'));
  dl(new Blob(['\ufeff'+[h.map(q).join(';'),...rows].join('\r\n')],{type:'text/csv'}),'teprospeccion-'+today()+'.csv')}
@@ -127,3 +128,43 @@ function syncPresu(){return _syncing||(_syncing=(async()=>{let a;try{a=JSON.pars
  const left=cur.filter(x=>![...done].some(d=>d.pid==x.pid&&d.ref==x.ref&&d.fecha==x.fecha));
  left.length?localStorage.setItem('tpros_sync',JSON.stringify(left)):localStorage.removeItem('tpros_sync');
  if(n){await reload();toast(n==1?'✓ 1 local marcado como «Presupuesto entregado»':'✓ '+n+' locales marcados como «Presupuesto entregado»')}return n})().finally(()=>{_syncing=null}))}
+
+/* ---------- MAPA VISITAS (batidas comerciales) ---------- */
+// Cada búsqueda guarda una «batida» en IndexedDB (store 'batidas'): centro, radio, fecha, categorías, ids de locales encontrados
+// y un resumen congelado por categoría. El estado de visita se calcula en vivo a partir de los locales actuales.
+async function saveBatida(o){try{if(!S.center)return;const now=Date.now(),id='B'+now.toString(36).toUpperCase();await reload();const m=new Map(S.locs.map(l=>[l.id,l]));
+ const porCat={};o.ids.forEach(i=>{const l=m.get(i);(l&&l.cats&&l.cats.length?l.cats:['otros']).forEach(c=>porCat[c]=(porCat[c]||0)+1)});
+ await DB.bPut({id,t:now,center:{lat:S.center.lat,lng:S.center.lng},src:S.center.src||'',radius:S.radius,porCat,n:o.ids.length,...o})}catch(e){console.warn('batida',e)}}
+function batStats(b){const m=new Map(S.locs.map(l=>[l.id,l])),est={},cat={};let vis=0,n=0;
+ (b.ids||[]).forEach(i=>{const l=m.get(i);if(!l)return;n++;const k=l.principal||'pend';est[k]=(est[k]||0)+1;if(l.principal&&l.principal!='sin')vis++;(l.cats&&l.cats.length?l.cats:['otros']).forEach(c=>cat[c]=(cat[c]||0)+1)});
+ return{n,vis,est,cat:n?cat:(b.porCat||{})}}
+const fFecha=t=>new Date(t).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+const catLbl=c=>c=='otros'?'Otros / búsqueda por texto':catN(c);
+function batLegend(b){const s=batStats(b),pct=s.n?Math.round(100*s.vis/s.n):0;
+ return`<div class="leg"><h3>🎯 Batida ${fFecha(b.t)}</h3><div>⭕ Radio <b>${fmtKm(b.radius)}</b> · 📍 ${b.center.lat.toFixed(4)}, ${b.center.lng.toFixed(4)}</div>
+ ${b.tipo=='texto'?`<div>🔤 Texto: «${esc(b.q)}»</div>`:''}<div>🏪 <b>${s.n||b.n}</b> locales · ✅ visitados ${s.vis} (${pct}%)</div>
+ <div class="pbar"><i style="width:${pct}%"></i></div>
+ <b>Por estado</b><ul>${[...EST.map(e=>[e[0],e[1],e[2]]),['pend','Pendiente','#4A4A4A']].filter(e=>s.est[e[0]]).map(e=>`<li><span class="dot" style="background:${e[2]}"></span>${e[1]}: <b>${s.est[e[0]]}</b></li>`).join('')||'<li>—</li>'}</ul>
+ <b>Por tipo</b><ul>${Object.entries(s.cat).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<li>${esc(catLbl(c))}: <b>${v}</b></li>`).join('')||'<li>—</li>'}</ul>
+ <div class="row wrap"><button class="btn" onclick="verBatida('${b.id}')">📋 Ver locales</button><button class="btn red" onclick="delBatida('${b.id}')">🗑 Borrar batida</button></div></div>`}
+function batColor(b){const s=batStats(b),p=s.n?s.vis/s.n:0;return p>=.5?'#C8102E':p>0?'#E0606F':'#4A4A4A'}
+async function verBatida(id){const b=(await DB.bAll()).find(x=>x.id==id);if(!b)return;S.center={...b.center,src:'batida '+fFecha(b.t)};S.radius=b.radius;S.f.zona=true;go('visitas')}
+async function delBatida(id){if(!confirm('¿Borrar esta batida del mapa? (los locales y sus visitas NO se borran)'))return;await DB.bDel(id);toast('Batida borrada');R.batidas()}
+let llP=null;function loadLeaflet(){if(window.L&&L.map)return Promise.resolve();return llP||(llP=new Promise((ok,ko)=>{const c=document.createElement('link');c.rel='stylesheet';c.href='leaflet.css?v=5';document.head.appendChild(c);
+ const s=document.createElement('script');s.src='leaflet.js?v=5';s.onload=ok;s.onerror=()=>{llP=null;ko(new Error('No se pudo cargar el mapa'))};document.head.appendChild(s)}))}
+R.batidas=async()=>{await reload();const B=(await DB.bAll()).sort((a,b)=>b.t-a.t);
+ $('#main').innerHTML=`<div class="card"><h2>🎯 Mapa de visitas</h2><p class="muted">Cada círculo es una batida comercial (búsqueda). Tócalo para ver la leyenda. Rojo = ≥50 % visitado, rosa = empezada, gris = sin visitar.</p>
+ <div class="map tall" id="bmap"></div><div id="bleg"></div></div>
+ <div class="card"><h2>🗓 Batidas recientes (${B.length})</h2>${B.length?B.map(b=>{const s=batStats(b);return`<div class="bitem" onclick="focusBat('${b.id}')"><span class="dot" style="background:${batColor(b)}"></span><div><b>${fFecha(b.t)}</b> · ${fmtKm(b.radius)}${b.tipo=='texto'?' · «'+esc(b.q)+'»':''}<br><small>${s.n||b.n} locales · ${s.vis} visitados</small></div></div>`}).join(''):'<p class="muted">Aún no hay batidas. Se guardan automáticamente al usar «Buscar establecimientos en mi zona».</p>'}</div>`;
+ S.bats=B;if(!B.length)return;
+ const show=b=>{$('#bleg').innerHTML=batLegend(b)};let focus;
+ try{if(!apiKey())throw 0;await loadMaps();const m=new google.maps.Map($('#bmap'),{center:B[0].center,zoom:12,mapTypeId:'hybrid',streetViewControl:false}),bd=new google.maps.LatLngBounds(),iw=new google.maps.InfoWindow();
+  const cs={};B.slice().reverse().forEach(b=>{const col=batColor(b),c=new google.maps.Circle({map:m,center:b.center,radius:b.radius,strokeColor:col,strokeWeight:2,fillColor:col,fillOpacity:.18,clickable:true});cs[b.id]=c;
+   const ne=offset(b.center,b.radius,b.radius),sw=offset(b.center,-b.radius,-b.radius);bd.extend(ne);bd.extend(sw);
+   c.addListener('click',ev=>{show(b);iw.setContent(`<div style="max-width:260px">${batLegend(b)}</div>`);iw.setPosition(ev.latLng);iw.open(m)})});
+  m.fitBounds(bd);focus=id=>{const b=B.find(x=>x.id==id);m.fitBounds(cs[id].getBounds());show(b);iw.setContent(`<div style="max-width:260px">${batLegend(b)}</div>`);iw.setPosition(b.center);iw.open(m)}}
+ catch(e){try{await loadLeaflet();const m=L.map('bmap').setView([B[0].center.lat,B[0].center.lng],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(m);const cs={};
+   B.slice().reverse().forEach(b=>{const col=batColor(b);cs[b.id]=L.circle([b.center.lat,b.center.lng],{radius:b.radius,color:col,weight:2,fillColor:col,fillOpacity:.18}).addTo(m).bindPopup(()=>batLegend(b),{maxWidth:280}).on('click',()=>show(b))});
+   m.fitBounds(L.featureGroup(Object.values(cs)).getBounds());focus=id=>{m.fitBounds(cs[id].getBounds());cs[id].openPopup();show(B.find(x=>x.id==id))}}
+  catch(e2){console.warn('MAPERR',e2&&e2.stack||e2);$('#bmap').outerHTML='<div class="warn">No se pudo cargar el mapa (sin conexión o sin clave). La leyenda sigue disponible en la lista.</div>';focus=id=>show(B.find(x=>x.id==id))}}
+ window.focusBat=id=>{focus(id);$('#bmap')&&$('#bmap').scrollIntoView({behavior:'smooth'})}};
